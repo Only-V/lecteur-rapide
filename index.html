@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lecteur rapide</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#15141a">
+<meta name="description" content="Lecteur RSVP local : un mot à la fois, point de focus fixe, 100 à 900 mots par minute.">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-180.png">
+<style>
+  :root{
+    --ink:#15141a;
+    --field:#1c1b23;
+    --edge:#2b2933;
+    --paper:#ece9e2;
+    --dim:#8d8896;
+    --dimmer:#5c5866;
+    --pivot:#e0483d;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--ink);color:var(--paper);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+  :focus-visible{outline:2px solid var(--pivot);outline-offset:3px;border-radius:2px}
+
+  .screen{position:fixed;inset:0;display:flex;flex-direction:column}
+  .hidden{display:none !important}
+
+  /* ---------- Écran d'accueil ---------- */
+  #setup{padding:clamp(16px,4.5vw,56px);overflow:hidden;gap:clamp(14px,2.5vh,28px)}
+  #setup h1{
+    font-family:var(--serif);font-weight:400;font-size:clamp(26px,6.5vw,46px);
+    margin:0;letter-spacing:-.01em;line-height:1.1;
+  }
+  #setup h1 em{font-style:normal;color:var(--pivot)}
+  .lede{color:var(--dim);max-width:52ch;line-height:1.55;margin:0;font-size:clamp(13px,3.6vw,15px)}
+  .drop{
+    border:1px dashed var(--edge);border-radius:3px;padding:clamp(12px,3vw,22px);
+    display:flex;flex-direction:column;gap:12px;transition:border-color .15s,background .15s;
+    flex:1;min-height:0;
+  }
+  .drop.over{border-color:var(--pivot);background:#1a1920}
+  .drop-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;color:var(--dim);font-size:14px}
+  .btn{
+    border:1px solid var(--edge);border-radius:2px;padding:9px 16px;
+    background:var(--field);font-size:14px;transition:border-color .15s;
+  }
+  .btn:hover{border-color:var(--dimmer)}
+  .btn-go{background:var(--pivot);border-color:var(--pivot);color:#fff;padding:11px 26px;font-size:15px}
+  .btn-go:hover{background:#c93d33;border-color:#c93d33}
+  .btn-go[disabled]{background:var(--field);border-color:var(--edge);color:var(--dimmer);cursor:not-allowed}
+  textarea{
+    width:100%;flex:1;min-height:0;resize:none;background:var(--field);
+    border:1px solid var(--edge);border-radius:3px;color:var(--paper);
+    padding:14px;font-family:var(--serif);font-size:16px;line-height:1.6;
+  }
+  textarea::placeholder{color:var(--dimmer)}
+  .foot{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between;flex:none}
+  .stat{color:var(--dim);font-size:14px;margin:0}
+  .stat b{color:var(--paper);font-weight:500;font-variant-numeric:tabular-nums}
+  .keys{color:var(--dimmer);font-size:13px;line-height:1.8;margin:8px 0 0}
+  .keys kbd{
+    font-family:var(--sans);font-size:12px;border:1px solid var(--edge);
+    border-radius:2px;padding:1px 6px;color:var(--dim);
+  }
+
+  /* ---------- Lecteur ---------- */
+  #reader{justify-content:space-between}
+  .stage{
+    flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;
+    position:relative;cursor:pointer;user-select:none;padding:0 12px;
+  }
+  .rail{width:min(760px,100%);position:relative;height:1px;background:var(--edge)}
+  .rail::after{
+    content:"";position:absolute;left:50%;width:1px;height:13px;background:var(--edge);
+  }
+  .rail.top::after{top:0}
+  .rail.bot::after{bottom:0}
+  .word{
+    display:flex;width:min(760px,100%);align-items:baseline;
+    font-family:var(--serif);font-size:clamp(30px,7.5vw,58px);line-height:1.5;
+    padding:14px 0;letter-spacing:.005em;
+  }
+  .word span{white-space:pre}
+  .w-l{flex:1;text-align:right}
+  .w-r{flex:1;text-align:left}
+  .w-p{color:var(--pivot)}
+  .ghost{
+    position:absolute;bottom:9%;left:0;right:0;text-align:center;
+    color:var(--dimmer);font-size:14px;pointer-events:none;
+  }
+  #countdown{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-family:var(--serif);font-size:clamp(56px,16vw,120px);color:var(--dimmer);
+  }
+
+  .panel{border-top:1px solid var(--edge);background:#141319;padding:14px clamp(14px,4vw,28px) calc(16px + env(safe-area-inset-bottom))}
+  .scrub{width:100%;height:22px;display:block}
+  .row{display:flex;align-items:center;gap:clamp(10px,3vw,22px);margin-top:2px}
+  .meta{color:var(--dim);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .speed{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
+  .speed output{
+    font-variant-numeric:tabular-nums;font-size:14px;white-space:nowrap;min-width:9ch;text-align:right;
+  }
+  .speed output small{color:var(--dim)}
+  .ctrl{
+    width:40px;height:40px;border:1px solid var(--edge);border-radius:50%;
+    display:grid;place-items:center;flex:none;transition:border-color .15s;
+  }
+  .ctrl:hover{border-color:var(--dimmer)}
+  .ctrl.play{width:52px;height:52px;background:var(--pivot);border-color:var(--pivot)}
+  .ctrl.play:hover{background:#c93d33;border-color:#c93d33}
+  .ctrl svg{width:16px;height:16px;fill:currentColor}
+  .ctrl.play svg{width:19px;height:19px;fill:#fff}
+  .toggle{color:var(--dimmer);font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer}
+  .toggle input{accent-color:var(--pivot);width:14px;height:14px}
+  .row2{
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;
+    gap:12px;margin-top:14px;
+  }
+  .exit{
+    display:flex;align-items:center;gap:7px;color:var(--dim);font-size:13px;
+    padding:6px 4px;transition:color .15s;flex:none;
+  }
+  .exit:hover{color:var(--paper)}
+  .exit svg{width:13px;height:13px;fill:currentColor}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;background:none;flex:1;min-width:60px;height:22px;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--edge)}
+  input[type=range]::-moz-range-track{height:2px;background:var(--edge)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--paper);margin-top:-6.5px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px;height:15px;border:none;border-radius:50%;background:var(--paper);
+  }
+  .scrub::-webkit-slider-thumb{background:var(--pivot)}
+  .scrub::-moz-range-thumb{background:var(--pivot)}
+
+  /* Pas de clavier physique : les raccourcis n'ont rien à faire là. */
+  @media (hover:none){
+    .keys{display:none}
+    .foot{flex-wrap:nowrap;gap:12px}
+    .btn-go{flex:none}
+    .stat{font-size:13px}
+  }
+  /* Écran court : la phrase d'intro passe à la trappe avant la zone de texte. */
+  @media (max-height:620px){ .lede{display:none} }
+
+  @media (max-width:560px){
+    .meta.right{display:none}
+    .row{gap:12px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+
+<!-- ============ Accueil ============ -->
+<section class="screen" id="setup">
+  <div>
+    <h1>Un m<em>o</em>t à la fois</h1>
+  </div>
+  <p class="lede">Colle un texte ou dépose un fichier. Les mots défilent un par un, la lettre rouge toujours au même endroit&nbsp;: ton œil ne bouge plus, il n'y a plus de temps perdu à sauter d'un mot au suivant.</p>
+
+  <div class="drop" id="drop">
+    <div class="drop-row">
+      <button class="btn" id="pick">Choisir un fichier</button>
+      <span>ou glisse-le ici — .txt, .md, .html, .docx</span>
+    </div>
+    <input type="file" id="file" accept=".txt,.md,.markdown,.html,.htm,.docx,text/*" hidden>
+    <textarea id="input" placeholder="…ou colle ton texte directement ici."></textarea>
+  </div>
+
+  <div class="foot">
+    <div>
+      <p class="stat" id="stat">Aucun texte pour l'instant.</p>
+      <p class="keys">
+        <kbd>Espace</kbd> lecture / pause · <kbd>←</kbd> <kbd>→</kbd> reculer, avancer
+        · <kbd>↑</kbd> <kbd>↓</kbd> vitesse · <kbd>Échap</kbd> revenir ici
+      </p>
+    </div>
+    <button class="btn btn-go" id="start" disabled>Lancer la lecture</button>
+  </div>
+</section>
+
+<!-- ============ Lecteur ============ -->
+<section class="screen hidden" id="reader">
+  <div class="stage" id="stage">
+    <div class="rail top"></div>
+    <div class="word" id="word">
+      <span class="w-l"></span><span class="w-p"></span><span class="w-r"></span>
+    </div>
+    <div class="rail bot"></div>
+    <div class="ghost" id="ghost">Touche l'écran ou appuie sur Espace pour démarrer</div>
+    <div id="countdown" class="hidden"></div>
+  </div>
+
+  <div class="panel">
+    <input type="range" class="scrub" id="scrub" min="0" max="0" value="0" aria-label="Position dans le texte">
+    <div class="row">
+      <button class="ctrl" id="back" title="Reculer de 10 mots" aria-label="Reculer de 10 mots">
+        <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6L11 18zm11 0V6l-8.5 6L22 18z"/></svg>
+      </button>
+      <button class="ctrl play" id="play" aria-label="Lecture">
+        <svg id="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button class="ctrl" id="fwd" title="Avancer de 10 mots" aria-label="Avancer de 10 mots">
+        <svg viewBox="0 0 24 24"><path d="M13 6v12l8.5-6L13 6zM2 6v12l8.5-6L2 6z"/></svg>
+      </button>
+      <span class="meta" id="pos">0 / 0</span>
+      <div class="speed">
+        <input type="range" id="wpm" min="100" max="900" step="25" value="450" aria-label="Mots par minute">
+        <output id="wpmOut">450 <small>mpm</small></output>
+      </div>
+      <span class="meta right" id="left">—</span>
+    </div>
+    <div class="row2">
+      <label class="toggle">
+        <input type="checkbox" id="punct" checked> Marquer une pause sur la ponctuation
+      </label>
+      <button class="exit" id="quit">
+        <svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg>
+        Nouveau texte
+      </button>
+    </div>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* ---------- État ---------- */
+let words = [], i = 0, playing = false, timer = null;
+let wpm = (() => {
+  const saved = parseInt(localStorage.getItem("lecteur-wpm"), 10);
+  return (saved >= 100 && saved <= 900) ? saved : 450;
+})();
+
+/* ---------- Découpage ---------- */
+function tokenize(text){
+  return text
+    .replace(/\r/g,"")
+    .replace(/\u00A0/g," ")
+    .split(/\n{2,}/)                       // paragraphes
+    .flatMap(p => {
+      const ws = p.split(/\s+/).filter(Boolean);
+      if(ws.length) ws[ws.length-1] += "\u2029"; // marqueur fin de paragraphe
+      return ws;
+    });
+}
+
+/* Point de focus optique : la lettre qui reste fixe (règle type Spritz) */
+function pivotIndex(w){
+  const n = w.replace(/\u2029/g,"").length;
+  if(n <= 1) return 0;
+  if(n <= 5) return 1;
+  if(n <= 9) return 2;
+  if(n <= 13) return 3;
+  return 4;
+}
+
+/* Durée d'affichage d'un mot */
+function delay(w){
+  const base = 60000 / wpm;
+  let m = 1;
+  const clean = w.replace(/\u2029/g,"");
+  if(clean.length > 8) m *= 1.15;
+  if(clean.length > 13) m *= 1.15;
+  if($("punct").checked){
+    if(/[,;:—–)"»]$/.test(clean)) m *= 1.5;
+    if(/[.!?…]["»)]?$/.test(clean)) m *= 1.9;
+    if(w.includes("\u2029")) m *= 1.6;
+  }
+  return base * m;
+}
+
+/* ---------- Rendu ---------- */
+function render(){
+  const raw = words[i] || "";
+  const w = raw.replace(/\u2029/g,"");
+  const p = pivotIndex(w);
+  const el = $("word").children;
+  el[0].textContent = w.slice(0,p);
+  el[1].textContent = w[p] || "";
+  el[2].textContent = w.slice(p+1);
+  $("scrub").value = i;
+  $("pos").textContent = (i+1).toLocaleString("fr-FR") + " / " + words.length.toLocaleString("fr-FR");
+  const mins = (words.length - i) / wpm;
+  $("left").textContent = mins < 1
+    ? Math.max(1, Math.round(mins*60)) + " s restantes"
+    : Math.round(mins) + " min restantes";
+}
+
+/* ---------- Lecture ---------- */
+function tick(){
+  if(!playing) return;
+  if(i >= words.length - 1){ pause(); return; }
+  const d = delay(words[i]);
+  timer = setTimeout(() => { i++; render(); tick(); }, d);
+}
+
+function play(){
+  if(!words.length) return;
+  if(i >= words.length - 1) i = 0;
+  $("ghost").classList.add("hidden");
+  $("icon").innerHTML = '<path d="M6 5h4v14H6zm8 0h4v14h-4z"/>';
+  $("play").setAttribute("aria-label","Pause");
+  countdown(() => { playing = true; render(); tick(); });
+}
+
+function countdown(done){
+  const box = $("countdown");
+  let n = 3;
+  box.classList.remove("hidden");
+  $("word").style.visibility = "hidden";
+  box.textContent = n;
+  const iv = setInterval(() => {
+    if(--n === 0){
+      clearInterval(iv);
+      box.classList.add("hidden");
+      $("word").style.visibility = "";
+      done();
+    } else box.textContent = n;
+  }, 380);
+}
+
+function pause(){
+  playing = false;
+  clearTimeout(timer);
+  $("icon").innerHTML = '<path d="M8 5v14l11-7z"/>';
+  $("play").setAttribute("aria-label","Lecture");
+}
+
+function toggle(){ playing ? pause() : play(); }
+
+function jump(n){
+  pause();
+  i = Math.min(words.length - 1, Math.max(0, i + n));
+  render();
+}
+
+function setWpm(v){
+  wpm = Math.min(900, Math.max(100, v));
+  $("wpm").value = wpm;
+  $("wpmOut").innerHTML = wpm + ' <small>mpm</small>';
+  try{ localStorage.setItem("lecteur-wpm", wpm); }catch(_){}
+  render();
+}
+
+/* ---------- Lecture de fichiers (sans dépendance) ---------- */
+async function readFile(f){
+  const name = f.name.toLowerCase();
+  if(name.endsWith(".docx")) return docxText(await f.arrayBuffer());
+  const t = await f.text();
+  if(name.endsWith(".html") || name.endsWith(".htm")){
+    const doc = new DOMParser().parseFromString(t, "text/html");
+    doc.querySelectorAll("script,style,nav,footer").forEach(e => e.remove());
+    return doc.body ? doc.body.innerText || doc.body.textContent : t;
+  }
+  return t;
+}
+
+/* Extraction du texte d'un .docx : ZIP lu à la main + DecompressionStream */
+async function docxText(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for(let p = u8.length - 22; p >= 0 && p > u8.length - 66000; p--){
+    if(dv.getUint32(p, true) === 0x06054b50){ eocd = p; break; }
+  }
+  if(eocd < 0) throw new Error("Fichier .docx illisible.");
+  let off = dv.getUint32(eocd + 16, true);
+  const count = dv.getUint16(eocd + 10, true);
+  const dec = new TextDecoder();
+  for(let k = 0; k < count; k++){
+    const nameLen = dv.getUint16(off + 28, true);
+    const name = dec.decode(u8.subarray(off + 46, off + 46 + nameLen));
+    if(name === "word/document.xml"){
+      const method = dv.getUint16(off + 10, true);
+      const csize = dv.getUint32(off + 20, true);
+      const lho = dv.getUint32(off + 42, true);
+      const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      let bytes = u8.subarray(start, start + csize);
+      if(method === 8){
+        const ds = new DecompressionStream("deflate-raw");
+        const blob = new Blob([bytes]).stream().pipeThrough(ds);
+        bytes = new Uint8Array(await new Response(blob).arrayBuffer());
+      }
+      return dec.decode(bytes)
+        .replace(/<\/w:p>/g, "\n\n")
+        .replace(/<w:tab[^>]*\/>/g, "\t")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&lt;/g,"<").replace(/&gt;/g,">")
+        .replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");
+    }
+    off += 46 + nameLen + dv.getUint16(off + 30, true) + dv.getUint16(off + 32, true);
+  }
+  throw new Error("Aucun texte trouvé dans ce .docx.");
+}
+
+/* ---------- Accueil ---------- */
+function refreshStat(){
+  const n = $("input").value.trim().split(/\s+/).filter(Boolean).length;
+  $("start").disabled = n === 0;
+  $("stat").innerHTML = n
+    ? `<b>${n.toLocaleString("fr-FR")}</b> mots — environ <b>${Math.max(1, Math.round(n/wpm))}</b> min à ${wpm} mpm.`
+    : "Aucun texte pour l'instant.";
+}
+
+async function load(f){
+  $("stat").textContent = "Lecture de " + f.name + "…";
+  try{
+    $("input").value = (await readFile(f)).trim();
+    refreshStat();
+  }catch(e){
+    $("stat").textContent = e.message + " Essaie de copier-coller le texte à la place.";
+  }
+}
+
+/* ---------- Câblage ---------- */
+$("pick").onclick = () => $("file").click();
+$("file").onchange = e => e.target.files[0] && load(e.target.files[0]);
+$("input").oninput = refreshStat;
+
+const drop = $("drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {
+  e.preventDefault(); drop.classList.remove("over");
+}));
+drop.addEventListener("drop", e => e.dataTransfer.files[0] && load(e.dataTransfer.files[0]));
+
+$("start").onclick = () => {
+  words = tokenize($("input").value.trim());
+  if(!words.length) return;
+  i = 0;
+  $("scrub").max = words.length - 1;
+  $("ghost").classList.remove("hidden");
+  $("setup").classList.add("hidden");
+  $("reader").classList.remove("hidden");
+  render();
+};
+
+$("quit").onclick = () => {
+  pause();
+  $("reader").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  refreshStat();
+};
+
+$("play").onclick = toggle;
+$("back").onclick = () => jump(-10);
+$("fwd").onclick  = () => jump(10);
+$("stage").onclick = toggle;
+$("wpm").oninput = e => setWpm(+e.target.value);
+$("scrub").oninput = e => { pause(); i = +e.target.value; render(); };
+
+addEventListener("keydown", e => {
+  if(e.target.tagName === "TEXTAREA") return;
+  const reading = !$("reader").classList.contains("hidden");
+  if(e.key === "Escape" && reading){ $("quit").click(); return; }
+  if(!reading) return;
+  const k = e.key;
+  if(k === " "){ e.preventDefault(); toggle(); }
+  else if(k === "ArrowLeft"){ e.preventDefault(); jump(e.shiftKey ? -50 : -10); }
+  else if(k === "ArrowRight"){ e.preventDefault(); jump(e.shiftKey ? 50 : 10); }
+  else if(k === "ArrowUp"){ e.preventDefault(); setWpm(wpm + 25); }
+  else if(k === "ArrowDown"){ e.preventDefault(); setWpm(wpm - 25); }
+});
+
+setWpm(wpm);
+
+/* ---------- Texte reçu par le partage Android ---------- */
+(() => {
+  const q = new URLSearchParams(location.search);
+  const shared = [q.get("title"), q.get("text"), q.get("url")].filter(Boolean).join("\n\n");
+  if(shared){
+    $("input").value = shared;
+    history.replaceState(null, "", location.pathname);
+  }
+})();
+
+refreshStat();
+
+/* ---------- Garder l'écran allumé pendant la lecture ---------- */
+let lock = null;
+async function wake(on){
+  try{
+    if(on && !lock && "wakeLock" in navigator){
+      lock = await navigator.wakeLock.request("screen");
+      lock.addEventListener("release", () => { lock = null; });
+    }else if(!on && lock){ lock.release(); lock = null; }
+  }catch(_){}
+}
+const _play = play, _pause = pause;
+play  = () => { _play();  wake(true);  };
+pause = () => { _pause(); wake(false); };
+addEventListener("visibilitychange", () => {
+  if(document.hidden) pause();
+});
+
+/* ---------- Installation hors ligne ---------- */
+if("serviceWorker" in navigator){
+  addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
